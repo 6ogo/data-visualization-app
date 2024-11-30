@@ -1,14 +1,18 @@
 import base64
 import re
-from sklearn.discriminant_analysis import StandardScaler
-from sklearn.preprocessing import MinMaxScaler
+import json
+from matplotlib import pyplot as plt
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from datetime import datetime
 import plotly.express as px
+import plotly.graph_objects as go
+import plotly.figure_factory as ff
+from scipy import stats
+from datetime import datetime
+import statsmodels.api as sm
+from statsmodels.stats.diagnostic import lilliefors
 
 # Set page configuration
 st.set_page_config(page_title="Data Visualization App", layout="wide")
@@ -77,6 +81,18 @@ def handle_missing_values(df):
     
     return df
 
+def save_config_to_file(config, filename):
+    """Save visualization configuration to a file"""
+    config_str = json.dumps(config)
+    b64 = base64.b64encode(config_str.encode()).decode()
+    href = f'<a href="data:file/json;base64,{b64}" download="{filename}">Download Configuration</a>'
+    return href
+
+def load_config_from_file(uploaded_file):
+    """Load visualization configuration from a file"""
+    content = uploaded_file.read().decode()
+    return json.loads(content)
+
 def data_transformation(df):
     """Apply data transformations to numeric columns"""
     st.subheader("Data Transformation")
@@ -119,6 +135,52 @@ def data_transformation(df):
     
     return df
 
+# Advanced statistical analysis function
+def perform_advanced_statistics(df, column):
+    """Perform advanced statistical analysis on a numeric column"""
+    stats_results = {}
+    
+    # Basic statistics
+    stats_results['mean'] = df[column].mean()
+    stats_results['median'] = df[column].median()
+    stats_results['std'] = df[column].std()
+    stats_results['skewness'] = stats.skew(df[column].dropna())
+    stats_results['kurtosis'] = stats.kurtosis(df[column].dropna())
+    
+    # Normality tests
+    try:
+        # Shapiro-Wilk test
+        shapiro_stat, shapiro_p = stats.shapiro(df[column].dropna())
+        stats_results['shapiro_test'] = {
+            'statistic': shapiro_stat,
+            'p_value': shapiro_p,
+            'is_normal': shapiro_p > 0.05
+        }
+        
+        # Lilliefors test
+        lillie_stat, lillie_p = lilliefors(df[column].dropna())
+        stats_results['lilliefors_test'] = {
+            'statistic': lillie_stat,
+            'p_value': lillie_p,
+            'is_normal': lillie_p > 0.05
+        }
+    except Exception as e:
+        stats_results['normality_test_error'] = str(e)
+    
+    # Outlier detection
+    Q1 = df[column].quantile(0.25)
+    Q3 = df[column].quantile(0.75)
+    IQR = Q3 - Q1
+    lower_bound = Q1 - 1.5 * IQR
+    upper_bound = Q3 + 1.5 * IQR
+    stats_results['outliers'] = {
+        'count': len(df[(df[column] < lower_bound) | (df[column] > upper_bound)]),
+        'lower_bound': lower_bound,
+        'upper_bound': upper_bound
+    }
+    
+    return stats_results
+
 def filter_data(df):
     """Add data filtering options"""
     st.subheader("Data Filtering")
@@ -158,6 +220,49 @@ def get_download_link(df, filename):
     b64 = base64.b64encode(csv.encode()).decode()
     href = f'<a href="data:file/csv;base64,{b64}" download="{filename}">Download CSV file</a>'
     return href
+
+def create_interactive_bar_plot(df, x_var, y_var, hue_var=None, title="Interactive Bar Plot"):
+    """Create an interactive bar plot using Plotly"""
+    if hue_var and hue_var != "None":
+        fig = px.bar(df, x=x_var, y=y_var, color=hue_var, title=title,
+                    barmode='group', template='plotly_white')
+    else:
+        fig = px.bar(df, x=x_var, y=y_var, title=title, template='plotly_white')
+    
+    fig.update_layout(
+        hoverlabel=dict(bgcolor="white"),
+        hovermode='closest'
+    )
+    return fig
+
+def create_interactive_box_plot(df, x_var, y_var, hue_var=None, title="Interactive Box Plot"):
+    """Create an interactive box plot using Plotly"""
+    if hue_var and hue_var != "None":
+        fig = px.box(df, x=x_var, y=y_var, color=hue_var, title=title,
+                    template='plotly_white')
+    else:
+        fig = px.box(df, x=x_var, y=y_var, title=title, template='plotly_white')
+    
+    fig.update_layout(
+        hoverlabel=dict(bgcolor="white"),
+        hovermode='closest'
+    )
+    return fig
+
+def create_interactive_violin_plot(df, x_var, y_var, hue_var=None, title="Interactive Violin Plot"):
+    """Create an interactive violin plot using Plotly"""
+    if hue_var and hue_var != "None":
+        fig = px.violin(df, x=x_var, y=y_var, color=hue_var, title=title,
+                       box=True, points="all", template='plotly_white')
+    else:
+        fig = px.violin(df, x=x_var, y=y_var, title=title,
+                       box=True, points="all", template='plotly_white')
+    
+    fig.update_layout(
+        hoverlabel=dict(bgcolor="white"),
+        hovermode='closest'
+    )
+    return fig
 
 def add_statistical_summary(df):
     """Add statistical summary of the data"""
@@ -208,6 +313,56 @@ if uploaded_file:
         # Define all_cols after loading the dataframe
         all_cols = df.columns.tolist()
 
+        # Plot settings - Define this before configuration management
+        plot_settings = {
+            "Line Plot": {"library": "plotly", "interactive": True},
+            "Scatter Plot": {"library": "plotly", "interactive": True},
+            "Bar Plot": {"library": "plotly", "interactive": True},
+            "Box Plot": {"library": "plotly", "interactive": True},
+            "Violin Plot": {"library": "plotly", "interactive": True},
+            "Histogram": {"library": "plotly", "interactive": True},
+            "Count Plot": {"library": "plotly", "interactive": True},
+            "Heat Map": {"library": "plotly", "interactive": True},
+            "Pair Plot": {"library": "plotly", "interactive": True}
+        }
+        
+        # Plot type selection
+        plot_type = st.selectbox("Select plot type", list(plot_settings.keys()))
+        
+        # Plot customization options
+        st.subheader("Plot Customization")
+        col1, col2 = st.columns(2)
+        with col1:
+            plot_title = st.text_input("Plot title", "My Plot")
+            x_axis_label = st.text_input("X-axis label")
+            y_axis_label = st.text_input("Y-axis label")
+        with col2:
+            plot_width = st.slider("Plot width", 400, 1200, 800)
+            plot_height = st.slider("Plot height", 300, 800, 500)
+
+        # Now add configuration management UI after variables are defined
+        st.sidebar.header("Configuration Management")
+        save_config = st.sidebar.button("Save Current Configuration")
+        if save_config:
+            current_config = {
+                'plot_type': plot_type,
+                'plot_settings': plot_settings,
+                'customization': {
+                    'title': plot_title,
+                    'x_label': x_axis_label,
+                    'y_label': y_axis_label,
+                    'width': plot_width,
+                    'height': plot_height
+                }
+            }
+            st.sidebar.markdown(save_config_to_file(current_config, "viz_config.json"), unsafe_allow_html=True)
+
+        config_file = st.sidebar.file_uploader("Load Configuration", type=['json'])
+        if config_file:
+            loaded_config = load_config_from_file(config_file)
+            st.session_state.update(loaded_config)
+            st.success("Configuration loaded successfully!")
+
         # Data preprocessing steps
         st.header("Data Preprocessing")
         
@@ -222,6 +377,40 @@ if uploaded_file:
         
         # Statistical summary
         add_statistical_summary(df)
+        
+        # Add advanced statistics section
+        st.header("Advanced Statistical Analysis")
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+        if len(numeric_cols) > 0:
+            selected_col = st.selectbox("Select column for advanced analysis", numeric_cols)
+            if selected_col:
+                stats_results = perform_advanced_statistics(df, selected_col)
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.subheader("Basic Statistics")
+                    st.write(f"Mean: {stats_results['mean']:.2f}")
+                    st.write(f"Median: {stats_results['median']:.2f}")
+                    st.write(f"Standard Deviation: {stats_results['std']:.2f}")
+                    st.write(f"Skewness: {stats_results['skewness']:.2f}")
+                    st.write(f"Kurtosis: {stats_results['kurtosis']:.2f}")
+                
+                with col2:
+                    st.subheader("Normality Tests")
+                    if 'shapiro_test' in stats_results:
+                        st.write("Shapiro-Wilk Test:")
+                        st.write(f"p-value: {stats_results['shapiro_test']['p_value']:.4f}")
+                        st.write(f"Normal distribution: {stats_results['shapiro_test']['is_normal']}")
+                    
+                    if 'lilliefors_test' in stats_results:
+                        st.write("Lilliefors Test:")
+                        st.write(f"p-value: {stats_results['lilliefors_test']['p_value']:.4f}")
+                        st.write(f"Normal distribution: {stats_results['lilliefors_test']['is_normal']}")
+
+                st.subheader("Outlier Analysis")
+                st.write(f"Number of outliers: {stats_results['outliers']['count']}")
+                st.write(f"Lower bound: {stats_results['outliers']['lower_bound']:.2f}")
+                st.write(f"Upper bound: {stats_results['outliers']['upper_bound']:.2f}")
         
         # Data preview
         st.header("Data Preview")
@@ -239,11 +428,11 @@ if uploaded_file:
             "Scatter Plot": {"library": "plotly", "interactive": True},
             "Bar Plot": {"library": "plotly", "interactive": True},
             "Box Plot": {"library": "plotly", "interactive": True},
-            "Violin Plot": {"library": "seaborn", "interactive": False},
+            "Violin Plot": {"library": "plotly", "interactive": True},
             "Histogram": {"library": "plotly", "interactive": True},
-            "Count Plot": {"library": "seaborn", "interactive": False},
-            "Heat Map": {"library": "seaborn", "interactive": False},
-            "Pair Plot": {"library": "seaborn", "interactive": False}
+            "Count Plot": {"library": "plotly", "interactive": True},
+            "Heat Map": {"library": "plotly", "interactive": True},
+            "Pair Plot": {"library": "plotly", "interactive": True}
         }
         
         plot_type = st.selectbox("Select plot type", list(plot_settings.keys()))
@@ -261,129 +450,143 @@ if uploaded_file:
         
         # Create visualization based on type
         if plot_type == "Line Plot":
-            fig = px.line(df, x=st.selectbox("X-axis", all_cols),
-                         y=st.multiselect("Y-axis", all_cols),
-                         title=plot_title,
-                         width=plot_width,
-                         height=plot_height)
-            st.plotly_chart(fig)
+            x_col = st.selectbox("X-axis", all_cols)
+            y_cols = st.multiselect("Y-axis", all_cols)
+            if x_col and y_cols:
+                fig = px.line(df, x=x_col, y=y_cols,
+                            title=plot_title,
+                            width=plot_width,
+                            height=plot_height)
+                fig.update_layout(
+                    xaxis_title=x_axis_label if x_axis_label else x_col,
+                    yaxis_title=y_axis_label if y_axis_label else ', '.join(y_cols)
+                )
+                st.plotly_chart(fig)
         
         elif plot_type == "Scatter Plot":
-            fig = px.scatter(df, x=st.selectbox("X-axis", all_cols),
-                           y=st.selectbox("Y-axis", all_cols),
-                           color=st.selectbox("Color by", ["None"] + list(all_cols)),
-                           title=plot_title,
-                           width=plot_width,
-                           height=plot_height)
-            st.plotly_chart(fig)
+            x_col = st.selectbox("X-axis", all_cols)
+            y_col = st.selectbox("Y-axis", all_cols)
+            color_col = st.selectbox("Color by", ["None"] + all_cols)
+            
+            if x_col and y_col:
+                fig = px.scatter(df, x=x_col, y=y_col,
+                               color=None if color_col == "None" else color_col,
+                               title=plot_title,
+                               width=plot_width,
+                               height=plot_height)
+                fig.update_layout(
+                    xaxis_title=x_axis_label if x_axis_label else x_col,
+                    yaxis_title=y_axis_label if y_axis_label else y_col
+                )
+                st.plotly_chart(fig)
 
         elif plot_type == "Bar Plot":
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                x_var = st.selectbox("Select X variable", all_cols)
-            with col2:
-                y_var = st.selectbox("Select Y variable", all_cols)
-            with col3:
-                hue_var = st.selectbox("Select group variable (optional)", ["None"] + all_cols)
+            x_var = st.selectbox("Select X variable", all_cols)
+            y_var = st.selectbox("Select Y variable", all_cols)
+            hue_var = st.selectbox("Select group variable (optional)", ["None"] + all_cols)
             
-            fig, ax = plt.subplots(figsize=(10, 6))
-            if hue_var != "None":
-                sns.barplot(data=df, x=x_var, y=y_var, hue=hue_var)
-            else:
-                sns.barplot(data=df, x=x_var, y=y_var)
-            plt.xticks(rotation=45)
-            plt.tight_layout()
-            st.pyplot(fig)
+            fig = create_interactive_bar_plot(
+                df, x_var, y_var, 
+                None if hue_var == "None" else hue_var,
+                plot_title
+            )
+            fig.update_layout(
+                width=plot_width,
+                height=plot_height,
+                xaxis_title=x_axis_label if x_axis_label else x_var,
+                yaxis_title=y_axis_label if y_axis_label else y_var
+            )
+            st.plotly_chart(fig)
 
         elif plot_type == "Box Plot":
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                x_var = st.selectbox("Select X variable", all_cols)
-            with col2:
-                y_var = st.selectbox("Select Y variable", all_cols)
-            with col3:
-                hue_var = st.selectbox("Select group variable (optional)", ["None"] + all_cols)
+            x_var = st.selectbox("Select X variable", all_cols)
+            y_var = st.selectbox("Select Y variable", all_cols)
+            hue_var = st.selectbox("Select group variable (optional)", ["None"] + all_cols)
             
-            fig, ax = plt.subplots(figsize=(10, 6))
-            if hue_var != "None":
-                sns.boxplot(data=df, x=x_var, y=y_var, hue=hue_var)
-            else:
-                sns.boxplot(data=df, x=x_var, y=y_var)
-            plt.xticks(rotation=45)
-            plt.tight_layout()
-            st.pyplot(fig)
+            fig = create_interactive_box_plot(
+                df, x_var, y_var,
+                None if hue_var == "None" else hue_var,
+                plot_title
+            )
+            fig.update_layout(
+                width=plot_width,
+                height=plot_height,
+                xaxis_title=x_axis_label if x_axis_label else x_var,
+                yaxis_title=y_axis_label if y_axis_label else y_var
+            )
+            st.plotly_chart(fig)
 
         elif plot_type == "Violin Plot":
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                x_var = st.selectbox("Select X variable", all_cols)
-            with col2:
-                y_var = st.selectbox("Select Y variable", all_cols)
-            with col3:
-                hue_var = st.selectbox("Select group variable (optional)", ["None"] + all_cols)
+            x_var = st.selectbox("Select X variable", all_cols)
+            y_var = st.selectbox("Select Y variable", all_cols)
+            hue_var = st.selectbox("Select group variable (optional)", ["None"] + all_cols)
             
-            fig, ax = plt.subplots(figsize=(10, 6))
-            if hue_var != "None":
-                sns.violinplot(data=df, x=x_var, y=y_var, hue=hue_var)
-            else:
-                sns.violinplot(data=df, x=x_var, y=y_var)
-            plt.xticks(rotation=45)
-            plt.tight_layout()
-            st.pyplot(fig)
+            fig = create_interactive_violin_plot(
+                df, x_var, y_var,
+                None if hue_var == "None" else hue_var,
+                plot_title
+            )
+            fig.update_layout(
+                width=plot_width,
+                height=plot_height,
+                xaxis_title=x_axis_label if x_axis_label else x_var,
+                yaxis_title=y_axis_label if y_axis_label else y_var
+            )
+            st.plotly_chart(fig)
 
         elif plot_type == "Histogram":
-            col1, col2 = st.columns(2)
-            with col1:
-                x_var = st.selectbox("Select variable", all_cols)
-            with col2:
-                bins = st.slider("Number of bins", min_value=5, max_value=100, value=30)
+            x_var = st.selectbox("Select variable", all_cols)
+            bins = st.slider("Number of bins", min_value=5, max_value=100, value=30)
             
-            fig, ax = plt.subplots(figsize=(10, 6))
-            sns.histplot(data=df, x=x_var, bins=bins)
-            plt.xticks(rotation=45)
-            plt.tight_layout()
-            st.pyplot(fig)
+            fig = px.histogram(df, x=x_var, nbins=bins,
+                             title=plot_title,
+                             width=plot_width,
+                             height=plot_height)
+            fig.update_layout(
+                xaxis_title=x_axis_label if x_axis_label else x_var,
+                yaxis_title=y_axis_label if y_axis_label else "Count"
+            )
+            st.plotly_chart(fig)
 
         elif plot_type == "Count Plot":
-            col1, col2 = st.columns(2)
-            with col1:
-                x_var = st.selectbox("Select variable", all_cols)
-            with col2:
-                hue_var = st.selectbox("Select group variable (optional)", ["None"] + all_cols)
+            x_var = st.selectbox("Select variable", all_cols)
+            hue_var = st.selectbox("Select group variable (optional)", ["None"] + all_cols)
             
-            fig, ax = plt.subplots(figsize=(10, 6))
             if hue_var != "None":
-                sns.countplot(data=df, x=x_var, hue=hue_var)
+                fig = px.histogram(df, x=x_var, color=hue_var,
+                                 title=plot_title,
+                                 width=plot_width,
+                                 height=plot_height)
             else:
-                sns.countplot(data=df, x=x_var)
-            plt.xticks(rotation=45)
-            plt.tight_layout()
-            st.pyplot(fig)
+                fig = px.histogram(df, x=x_var,
+                                 title=plot_title,
+                                 width=plot_width,
+                                 height=plot_height)
+            
+            fig.update_layout(
+                xaxis_title=x_axis_label if x_axis_label else x_var,
+                yaxis_title=y_axis_label if y_axis_label else "Count"
+            )
+            st.plotly_chart(fig)
 
         elif plot_type == "Heat Map":
-            # Let user select variables for correlation
             selected_cols = st.multiselect("Select variables for correlation heatmap", all_cols)
             
             if selected_cols:
-                # Prepare numeric data for correlation
-                numeric_df = df[selected_cols].copy()
+                corr_matrix = df[selected_cols].corr()
                 
-                # Convert all columns to numeric where possible
-                for col in numeric_df.columns:
-                    if not pd.api.types.is_numeric_dtype(numeric_df[col]):
-                        try:
-                            numeric_df[col] = pd.to_numeric(numeric_df[col], errors='coerce')
-                        except:
-                            numeric_df[col] = numeric_df[col].astype('category').cat.codes
+                fig = px.imshow(corr_matrix,
+                              title=plot_title,
+                              width=plot_width,
+                              height=plot_height,
+                              color_continuous_scale="RdBu_r")
                 
-                # Create correlation matrix
-                correlation_matrix = numeric_df.corr()
+                fig.update_layout(
+                    xaxis_title="Variables",
+                    yaxis_title="Variables"
+                )
                 
-                fig, ax = plt.subplots(figsize=(10, 8))
-                sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', center=0)
-                plt.title('Correlation Heatmap')
-                plt.tight_layout()
-                st.pyplot(fig)
+                st.plotly_chart(fig)
 
         elif plot_type == "Pair Plot":
             selected_cols = st.multiselect(
@@ -395,16 +598,33 @@ if uploaded_file:
             
             if selected_cols:
                 hue_var = st.selectbox("Select grouping variable (optional)", ["None"] + all_cols)
+                
                 if hue_var != "None":
-                    fig = sns.pairplot(df[selected_cols + [hue_var]], hue=hue_var)
+                    fig = px.scatter_matrix(df, dimensions=selected_cols, color=hue_var,
+                                          title=plot_title,
+                                          width=plot_width,
+                                          height=plot_height)
                 else:
-                    fig = sns.pairplot(df[selected_cols])
-                st.pyplot(fig)
+                    fig = px.scatter_matrix(df, dimensions=selected_cols,
+                                          title=plot_title,
+                                          width=plot_width,
+                                          height=plot_height)
+                
+                st.plotly_chart(fig)
+
+        # Save plot settings
+        if st.button("Save Plot Settings"):
+            st.session_state['plot_settings'] = save_plot_settings()
+            st.success("Plot settings saved!")
+        
+        # Load saved settings
+        if 'plot_settings' in st.session_state and st.button("Load Saved Settings"):
+            st.info("Loading saved settings...")
 
     except Exception as e:
         st.error(f"Error loading or processing the file: {str(e)}")
         st.write("Please check your file format and try again.")
-        st.write("Error details:", str(e))  #for debugging
+        st.write("Error details:", str(e))
 
 # Add help section
 with st.expander("Help & Documentation"):
