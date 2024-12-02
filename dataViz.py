@@ -56,7 +56,10 @@ def handle_missing_values(df):
         st.write("Missing values found in:")
         st.write(missing_stats[missing_stats > 0])
         
-        for column in all_cols[df.isnull().any()]:
+        # Get columns with missing values
+        columns_with_missing = df.columns[df.isnull().any()].tolist()
+        
+        for column in columns_with_missing:
             st.write(f"\nHandling missing values in {column}:")
             method = st.selectbox(
                 f"Choose method for {column}",
@@ -75,6 +78,13 @@ def handle_missing_values(df):
             elif method == "Fill with custom value":
                 custom_value = st.text_input(f"Enter value for {column}", key=f"custom_{column}")
                 if custom_value:
+                    # Try to convert to numeric if the column is numeric
+                    if pd.api.types.is_numeric_dtype(df[column]):
+                        try:
+                            custom_value = float(custom_value)
+                        except ValueError:
+                            st.error(f"Please enter a numeric value for {column}")
+                            continue
                     df[column] = df[column].fillna(custom_value)
     else:
         st.write("No missing values found in the dataset.")
