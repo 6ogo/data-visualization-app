@@ -1,6 +1,6 @@
 # Data Visualization App
 
-A simple and interactive data visualization application built with Streamlit. This app allows users to upload CSV or Excel files and create various types of plots with just a few clicks.
+A simple and interactive data visualization Streamlit-application built with Streamlit. This app allows users to upload CSV or Excel files and create various types of plots with just a few clicks.
 
 ## Features
 
