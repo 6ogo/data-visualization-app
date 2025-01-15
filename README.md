@@ -53,5 +53,3 @@ streamlit run app.py
 ## License
 
 MIT License
-
-Project Link: https://github.com/yourusername/data-visualization-app
