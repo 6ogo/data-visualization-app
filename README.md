@@ -23,7 +23,7 @@ A simple and interactive data visualization Streamlit-application built with Str
 
 1. Clone this repository:
 ```
-git clone https://github.com/yourusername/data-visualization-app.git
+git clone https://github.com/6ogo/data-visualization-app.git
 cd data-visualization-app
 ```
 
